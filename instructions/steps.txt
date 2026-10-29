@@ -1,0 +1,49 @@
+development steps: 
+
+- create github repo
+- create virtual enviroment
+- install dependencies
+- create README.md
+- create requirements.txt
+- create .gitignore
+- create .env file
+- config openai client
+- call  openai api with one ticket
+- test with one simple prompt with one simple ticket 
+- create tickets dataset
+- create JSON Schema / Pydantic contract for the output
+    {answer, confidence, category, actions} 
+    category ∈ {billing, technical, account, other}
+- create prompts en yamls files 
+- create different versions of prompts (zero-shot, few-shot, chain-of-thought, etc.)
+- Configurá los parámetros de la llamada (modelo, temperature, límites de tokens)
+`
+
+
+- add Gemini API 
+- create suite de evals 
+- register metrics in data/metrics.jsonl
+- Registro persistente estructurado en JSONL por petición: timestamp, texto, categoría, 
+  tokens in/out, latencia (s) y costo estimado (USD).
+
+
+-FILES:
+* README
+    README.md
+* Configuración 
+    .env.example, requirements.txt    
+* CLI de triage
+    src/main.py
+* Prompts versionados
+    prompts/*.yaml
+* Dataset y suite de evals
+    evals/dataset.jsonl
+    evals/runner.py 
+* Registro de métricas
+    data/metrics.jsonl    
+* LLMProvider
+    src/llm_provider.py
+
+
+
+

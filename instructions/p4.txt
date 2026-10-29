@@ -1,0 +1,34 @@
+
+Evaluación
+
+* Funcionalidad y contrato JSON
+    cliente LLM multi-proveedor, cumplimiento del esquema Pydantic, 
+    retry ante errores de parsing, manejo de casos borde.
+
+* Suite de evals y dataset
+    cobertura del dataset (≥30 casos), automatización del runner, claridad del reporte.
+
+* Context engineering y prompting
+    versionado de prompts, comparativa empírica, selección respaldada por datos
+
+* Seguridad y guardrails
+    detección y mitigación de prompt injection / jailbreak, suite adversarial (si se aborda el bonus).
+
+* Observabilidad y métricas
+    registro estructurado en JSONL con tokens, latencia y costo por request.
+
+* Repositorio, README 
+    calidad y modularidad del código, documentación ejecutable
+
+* Construí una abstracción mínima (LLMProvider o similar) 
+    que te permita cambiar de proveedor sin tocar la lógica de negocio.
+
+* Configurá los parámetros de la llamada (modelo, temperature, límites de tokens)
+    de forma deliberada y dejá registro de por qué elegiste esos valores.    
+
+* Registrá tus métricas en data/metrics.jsonl (formato append-only, una línea por request). 
+    Si una métrica no responde una pregunta concreta de costo, latencia o consumo, sobra.
+
+* Separá responsabilidades en funciones pequeñas: cliente LLM, validación,
+    guardrails y métricas no deberían vivir todos en el mismo archivo.
+
