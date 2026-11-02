@@ -1,0 +1,2 @@
+Log estructurado append-only por request: timestamp, tokens (prompt/completion/total),
+latencia (s) y costo estimado (USD).

@@ -1,0 +1,14 @@
+Los 4 principios de un prompt efectivo
+
+1  establece la perspectiva del modelo. Ej: "Eres un agente experto de soporte técnico..."
+2 Proporcionar Contexto: incluye los datos de entrada relevantes. Ej: "El siguiente es un ticket de cliente..."
+3 Especificar la Tarea: indica claramente qué debe hacer el modelo. Ej: "Clasifica el ticket como [Urgente, Normal, Bajo]..."
+4 Definir el Formato de Salida: asegura que la respuesta sea legible por máquina. Ej: "Devuelve el resultado en formato JSON..."
+
+Few-shot
+Mostrar en lugar de solo describir
+Se le proporcionan al modelo 2-3 pares input-output antes del caso real,
+para que este comprenda qué formato y nivel de detalle se espera. 
+La lógica detrás de esta técnica es distinta a la de un system prompt:
+mientras que el system prompt describe la tarea en lenguaje natural, 
+el few-shot demuestra la tarea con casos concretos ya resueltos.

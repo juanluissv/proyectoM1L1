@@ -3,13 +3,15 @@ la clasifica, propone una respuesta y sugiere acciones — con calidad medible,
 costos controlados y resistencia a usos maliciosos. 
 - Construir un servicio que recibe la consulta de un usuario en texto libre y devuelve una respuesta estructurada, segura y medida.
 
-El servicio expone una CLI (interfaz de línea de comandos) que recibe la consulta y devuelve JSON validado 
-con el contrato {answer, confidence, category, actions}, donde category ∈ {billing, technical, account, other}
-y actions es una lista de acciones sugeridas para el agente humano.
 
 Cada ejecución registra tokens consumidos, latencia y costo. 
 El proyecto incluye un dataset de evaluación etiquetado y una suite de evals que corre por comando y reporta score global y por categoría.
  La técnica de context engineering elegida debe estar documentada y justificada con resultados, no con opiniones.
+
+
+El servicio expone una CLI (interfaz de línea de comandos) que recibe la consulta y devuelve JSON validado 
+con el contrato {answer, confidence, category, actions}, donde category ∈ {billing, technical, account, other}
+y actions es una lista de acciones sugeridas para el agente humano.
 
 
 * Al menos dos proveedores configurables (por ejemplo OpenAI y Anthropic)
