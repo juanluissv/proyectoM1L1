@@ -1,5 +1,5 @@
 
-* Entregable:
++ Entregables del proyecto:
 
 * CLI de triage
     src/main.py
