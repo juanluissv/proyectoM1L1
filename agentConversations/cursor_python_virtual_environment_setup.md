@@ -1,5 +1,5 @@
 # Python virtual environment setup
-_Exported on 11/2/2026 at 17:05:02 CST from Cursor (3.23.23)_
+_Exported on 11/4/2026 at 16:28:51 CST from Cursor (3.23.23)_
 
 ---
 
@@ -685,4 +685,414 @@ Here’s what was added:
 ```
 
 Run `python src/main.py` to generate the file. If you prefer **append** on every run instead of overwrite, say so and we can switch it.
+
+---
+
+**User**
+
+ok I made a mistake I need your help to fix it, the ticket should not come from the dataset @evals/dataset.jsonl it should come from the user, the user should write the ticket in the terminal when i runs @src/main.py , so when the user runs  it should be something like:  python3 main.py --query "Me cobraron dos veces la suscripción". please help me fix this leave the @evals/dataset.jsonl as it is (because I will use it later) but remove it from main @src/main.py:15-16 , and make @src/main.py take the query from the terminal ( python3 main.py --query "Me cobraron dos veces la suscripción".)
+
+---
+
+**Cursor**
+
+Refactoring `main.py` to accept `--query` from the CLI and append each response to `answers.jsonl`.
+
+
+
+
+Here’s what changed:
+
+### Removed
+- Loading from `evals/dataset.jsonl` and `DATASET_PATH`
+- Loop over multiple tickets
+
+### Added
+- **`argparse`** with required **`--query`**
+- **`main()`** + `if __name__ == '__main__'` for a normal CLI entrypoint
+
+### Answers file
+- Each run **appends** one line to `evals/answers.jsonl` (so earlier runs are kept)
+
+### How to run
+
+From the project root:
+
+```bash
+python3 src/main.py --query "Me cobraron dos veces la suscripción"
+```
+
+From `src/`:
+
+```bash
+cd src
+python3 main.py --query "Me cobraron dos veces la suscripción"
+```
+
+Without `--query`, argparse prints usage and exits. `evals/dataset.jsonl` is unchanged for your evals later.
+
+---
+
+**User**
+
+please explain to me why @src/main.py  needs to have this :  @src/main.py:69-70 f __name__ == '__main__' .   what is it for ?
+
+---
+
+**Cursor**
+
+`if __name__ == '__main__':` controls **when** the code in that block runs. It’s a common Python pattern for scripts that can also be imported as modules.
+
+## What Python sets on every file
+
+When Python loads a file, it sets a variable **`__name__`**:
+
+| How the file is used | Value of `__name__` |
+|----------------------|---------------------|
+| You run it directly: `python3 src/main.py` | `'__main__'` |
+| Another file does `import main` (or imports from `src`) | `'main'` (the module name) |
+
+So **`__name__ == '__main__'`** is true only when that file is the **entry point** you executed, not when something else imports it.
+
+## What your lines do
+
+```69:70:src/main.py
+if __name__ == '__main__':
+	main()
+```
+
+Meaning:
+
+- **Run as CLI** → call `main()` (parse `--query`, call OpenAI, print, save to `answers.jsonl`).
+- **Imported** → definitions like `parse_args`, `load_system_prompt`, and `main` exist, but **`main()` is not called automatically**. Another script could do `from main import load_system_prompt` without triggering a full triage run.
+
+## Why that matters for your project
+
+Without the guard, putting `main()` at the bottom **unconditionally** would mean:
+
+```python
+main()  # always runs on import
+```
+
+Then `evals/runner.py` doing `import main` or importing helpers from `main.py` could accidentally hit the API, require `--query`, or fail—every import would behave like running the CLI.
+
+With the guard, **`main.py` is both**:
+
+1. A **program**: `python3 src/main.py --query "..."`
+2. A **module**: reusable functions without side effects on import
+
+## Short analogy
+
+- **`def main():`** = recipe (“how to run triage”).
+- **`if __name__ == '__main__': main()`** = “only cook when someone runs this file directly, not when they only borrow the recipe book.”
+
+## Do you always need it?
+
+For a tiny homework script with only a `main()` at the bottom, you *could* skip it and call `main()` directly—it often still works if nothing imports the file.
+
+For anything that might grow (`runner.py`, tests, `llm_provider.py`), the guard is **good practice** and matches how real CLIs are structured.
+
+**Bottom line:** those two lines ensure **`main()` runs only when you execute `main.py` from the terminal**, not when Python loads the file as an imported module.
+
+---
+
+**User**
+
+I just move apiAnswersRecords apiAnswersRecords/answers.jsonl  to another folder please make sure the patch is not broken in main.py
+
+---
+
+**Cursor**
+
+Updated **`ANSWERS_PATH`** in `src/main.py`:
+
+```python
+ANSWERS_PATH = ROOT / 'apiAnswersRecords' / 'answers.jsonl'
+```
+
+Append behavior is unchanged: the folder is created if needed, and each run adds a line to `apiAnswersRecords/answers.jsonl`. No other references to `evals/answers.jsonl` were in the project code.
+
+---
+
+**User**
+
+I change the prompt name to @prompts/zeroShot.yaml zeroShot please make sure that this change name is not broken in @src/main.py 
+
+---
+
+**Cursor**
+
+Updated `src/main.py` so the prompt path is:
+
+```python
+PROMPT_PATH = ROOT / 'prompts' / 'zeroShot.yaml'
+```
+
+`load_system_prompt()` still reads the `system_prompt` field from that file, which matches `zeroShot.yaml`. Nothing else in the project code referenced `prompt1.yaml`.
+
+---
+
+**User**
+
+ok now I want to create a new prompt in @prompts/fewShot.yaml this prompt is few shot take this text in cosideration to design the prompt: @instructions/PromptCreation.txt:9-14  and you can take the examples for the few shot prompt from @apiAnswersRecords/answers.jsonl 
+
+---
+
+**Cursor**
+
+Creando `fewShot.yaml` con un system prompt conciso y 3 pares input–output de `answers.jsonl` (billing, technical, account).
+
+
+
+
+Created **`prompts/fewShot.yaml`** with this layout:
+
+### Design (from `PromptCreation.txt`)
+- **System prompt (principles 1, 3, 4):** role, task, JSON contract — shorter than zero-shot because behavior is shown by examples.
+- **Few-shot (principles 9–14):** **3 ticket → JSON pairs** embedded in `system_prompt`, taken from the first 3 lines of `apiAnswersRecords/answers.jsonl` (`billing`, `technical`, `account`).
+- Closing line: the **new ticket** arrives in the user message (same as `main.py`: `Ticket: {query}`).
+
+### Two layers in the file
+| Key | Purpose |
+|-----|--------|
+| **`system_prompt`** | What `main.py` loads today — full text including the 3 examples. |
+| **`examples`** | Structured copies for evals, docs, or a future runner that builds user/assistant turns. |
+
+The 4th record in `answers.jsonl` (`como cambio mi usuario?`) was left out so you stay at **3 examples** and avoid two similar `account` cases.
+
+### Try few-shot in the CLI
+Point `main.py` at the new file (or add a `--prompt` flag later):
+
+```python
+PROMPT_PATH = ROOT / 'prompts' / 'fewShot.yaml'
+```
+
+If you want, we can add `--prompt zeroShot|fewShot` so you can switch without editing code.
+
+---
+
+**User**
+
+please make the new prompt @prompts/fewShot.yaml the main prompt in @src/main.py 
+
+---
+
+**Cursor**
+
+Updated `src/main.py` so the default prompt file is **`prompts/fewShot.yaml`**. `load_system_prompt()` still reads the `system_prompt` field, which matches that file.
+
+Run as usual:
+
+```bash
+python3 src/main.py --query "tu ticket aquí"
+```
+
+---
+
+**User**
+
+@src/main.py:8-10 what do i need to install for those ?
+
+---
+
+**Cursor**
+
+Here’s what those imports need:
+
+| Import | Package to install? |
+|--------|---------------------|
+| `from pydantic import BaseModel, Field` | **Yes — `pydantic`** (already in your `requirements.txt` as `pydantic==2.14.2`) |
+| `from typing import Literal` | **No** — built into Python 3.8+ |
+| `from enum import Enum` | **No** — standard library |
+
+Install everything for the project (including Pydantic):
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Or only Pydantic:
+
+```bash
+pip install pydantic
+```
+
+Pydantic v2 also pulls in **`pydantic_core`** and **`annotated-types`**, which you already list in `requirements.txt`.
+
+---
+
+**User**
+
+ok please help me with @src/main.py i am trying to add pydantic and usit with open ai tools just like in the file @/Users/juanluissv/Desktop/python1/python2/m1/functionCalling1.py , can you please check @src/main.py and make sure that pydantic is use with  open ai tools (use @/Users/juanluissv/Desktop/python1/python2/m1/functionCalling1.py  as a reference )
+
+---
+
+**Cursor**
+
+Integrating tool-calling flow from the reference: parse `tool_calls` arguments and validate with Pydantic. Aligning the model with the project contract (`actions` as strings, not the hotel `Accion` enum).
+
+
+
+
+Here’s what was wrong and what we changed.
+
+### Problems in your version
+1. **`message.content`** — With forced tool use, the model usually returns **`tool_calls`**, not JSON in `content` (often `None`).
+2. **`json.loads(raw_content)`** — Same as the reference: read **`tool_calls[0].function.arguments`**, then `json.loads`, then **Pydantic** `model_validate`.
+3. **`Accion` enum** — Copied from the hotel example; your prompt/`answers.jsonl` use **free-text** actions (e.g. “Iniciar el proceso de reembolso”), not `derivar_agente`, etc. **`actions` is now `list[str]`**.
+4. **Tool definition** — Added **`description`** on the function (recommended by OpenAI).
+
+### Flow (same idea as `functionCalling1.py`)
+
+```text
+OpenAI call with tools + tool_choice
+  → message.tool_calls[0].function.arguments  (string)
+  → json.loads(...)
+  → TriageContrato.model_validate(...)        (Pydantic)
+  → model_dump() for print / answers.jsonl
+```
+
+### `TriageContrato` (project contract)
+
+- `answer`, `confidence`, `category` ∈ `billing|technical|account|other`, `actions: list[str]`
+- Schema for the API: `TriageContrato.model_json_schema()`
+
+Run:
+
+```bash
+python3 src/main.py --query "Me cobraron dos veces la suscripción"
+```
+
+If you later want **retries** when validation fails (as in `p3.txt`), we can add a small loop around `call_triage` + `parse_tool_response`.
+
+---
+
+**User**
+
+please explain to me the changes that you just made
+
+---
+
+**Cursor**
+
+Here’s a concise walkthrough of what changed and why.
+
+## Before vs after (how the model returns data)
+
+**Before (your draft):** You used `tools` + `tool_choice`, but still read **`message.content`** and ran `json.loads` on it — the same as **`response_format={"type": "json_object"}`**.
+
+**After:** With **function calling**, the structured payload lives in **`message.tool_calls[0].function.arguments`** (a JSON **string**). `content` is often `null`. That matches `functionCalling1.py`.
+
+```mermaid
+flowchart LR
+  A[API response] --> B[tool_calls]
+  B --> C[function.arguments string]
+  C --> D[json.loads]
+  D --> E[TriageContrato.model_validate]
+```
+
+---
+
+## 1. Pydantic contract (`TriageContrato`)
+
+```27:33:src/main.py
+class TriageContrato(BaseModel):
+	answer: str = Field(min_length=1)
+	confidence: float = Field(ge=0.0, le=1.0)
+	category: CategoriaValida
+	actions: list[str] = Field(min_length=1)
+
+TOOL_SCHEMA = TriageContrato.model_json_schema()
+```
+
+- Fields match your project: `answer`, `confidence`, `category`, `actions`.
+- **`category`** is restricted with `Literal['billing', 'technical', 'account', 'other']` instead of a hacky `Literal.__getitem__(tuple(...))`.
+- **`actions`** is **`list[str]`**, not `list[Accion]`. Your few-shot examples and `answers.jsonl` use human-readable strings (“Iniciar el proceso de reembolso”), not hotel enums like `derivar_agente`.
+- **`TOOL_SCHEMA`** is the JSON Schema OpenAI uses for the tool **`parameters`** (same idea as the reference).
+
+The **`Accion` enum** was removed because it didn’t match your support triage domain or your prompts.
+
+---
+
+## 2. OpenAI tools setup (`call_triage`)
+
+```54:73:src/main.py
+def call_triage(system_prompt: str, ticket: str):
+	return client.chat.completions.create(
+		...
+		tools=[{
+			'type': 'function',
+			'function': {
+				'name': TOOL_NAME,
+				'description': TOOL_DESCRIPTION,
+				'parameters': TOOL_SCHEMA,
+			},
+		}],
+		tool_choice={
+			'type': 'function',
+			'function': {'name': TOOL_NAME},
+		},
+	)
+```
+
+- **`tools`**: declares one function, `clasificar_consulta`, whose arguments must follow `TriageContrato`’s schema.
+- **`tool_choice`**: forces the model to **call that function** instead of replying in free text.
+- **`description`**: short explanation for the model (your reference only had `name` + `parameters`; this is a small improvement).
+
+The API call was moved into **`call_triage`** so `main()` stays readable.
+
+---
+
+## 3. Reading and validating the response (`parse_tool_response`)
+
+```76:93:src/main.py
+def parse_tool_response(response) -> TriageContrato:
+	message = response.choices[0].message
+	if not message.tool_calls:
+		raise SystemExit(...)
+
+	raw_args = message.tool_calls[0].function.arguments
+	args_dict = json.loads(raw_args)
+	return TriageContrato.model_validate(args_dict)
+```
+
+Steps (same as `functionCalling1.py`):
+
+1. Take **`tool_calls[0].function.arguments`** (string).
+2. **`json.loads`** → dict.
+3. **`TriageContrato.model_validate(...)`** → typed, validated object (types, ranges, allowed categories, non-empty `actions`).
+
+If there are no tool calls, JSON is broken, or validation fails, the script exits with a clear message (`ValidationError` included).
+
+---
+
+## 4. Output and saving (`main`)
+
+```104:114:src/main.py
+	triage = parse_tool_response(response)
+
+	record = {'ticket': ticket, 'answer': triage.model_dump()}
+	output_json = json.dumps(triage.model_dump(), ensure_ascii=False)
+```
+
+- You work with a **`TriageContrato`** instance, not a loose dict.
+- **`model_dump()`** turns it into a plain dict for printing and for **`apiAnswersRecords/answers.jsonl`** (same shape as before: `ticket` + `answer`).
+
+---
+
+## What stayed the same
+
+- CLI: **`--query`**
+- Prompt from **`prompts/fewShot.yaml`**
+- Append to **`apiAnswersRecords/answers.jsonl`**
+- User message: **`Ticket: {query}`**
+
+---
+
+## Why both YAML prompt JSON instructions and tools?
+
+The YAML still describes the JSON shape for the model (few-shot examples). **Tools + Pydantic** enforce that shape on your side: the API gets a schema, and Python **re-validates** after the call. That’s the “structured output + contract” requirement from your project instructions.
+
+If you want next steps, the usual ones are **automatic retries** when `model_validate` fails and logging **tokens/latency/cost** to `data/metrics.jsonl`.
 
