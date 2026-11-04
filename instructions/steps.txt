@@ -1,24 +1,21 @@
 development steps: 
 
-- create github repo                                           +
-- create virtual enviroment                                    +
-- install dependencies                                         +
-- create README.md                                             +
-- create requirements.txt                                      +
-- create .gitignore                                            +      
-- create .env file                                             +
-- config openai client                                         +
-- create prompts en yamls files                                + 
-- call  openai api with one ticket                             +
-- test with one simple prompt with one simple ticket           +
-- create JSON Schema / Pydantic contract for the output
+- create github repo                                                                        +
+- create virtual enviroment                                                                 +
+- install dependencies                                                                      +
+- create README.md                                                                          +
+- create requirements.txt                                                                   +
+- create .gitignore                                                                         +      
+- create .env file                                                                          +
+- config openai client                                                                      +
+- create prompts en yamls files                                                             + 
+- call  openai api with one ticket                                                          +
+- test with one simple prompt with one simple ticket                                        +
+- create different versions of prompts (zero-shot, few-shot, chain-of-thought, etc.)        +
+- create JSON Schema / Pydantic contract for the output 
     {answer, confidence, category, actions} 
     category ∈ {billing, technical, account, other}
-- create different versions of prompts (zero-shot, few-shot, chain-of-thought, etc.)
 - Configurá los parámetros de la llamada (modelo, temperature, límites de tokens)
-`
-
-
 - add Gemini API 
 - create tickets dataset
 - create suite de evals 
