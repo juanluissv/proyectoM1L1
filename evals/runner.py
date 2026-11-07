@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import time
 from collections import defaultdict
@@ -24,10 +25,10 @@ CATEGORIES = ('account', 'billing', 'other', 'technical')
 # Precios gpt-4o-mini (USD por token) — mismo criterio que registroTokens.py
 PRICE_PROMPT_PER_TOKEN = 0.15 / 1_000_000
 PRICE_COMPLETION_PER_TOKEN = 0.60 / 1_000_000
-PROVIDER = 'openai'
-
-
 def load_triage_module():
+	src_dir = str(ROOT / 'src')
+	if src_dir not in sys.path:
+		sys.path.insert(0, src_dir)
 	spec = importlib.util.spec_from_file_location('triage_main', MAIN_PATH)
 	if spec is None or spec.loader is None:
 		raise RuntimeError(f'No se pudo cargar {MAIN_PATH}')
@@ -53,7 +54,20 @@ def load_dataset():
 	return cases
 
 
-def estimate_cost_usd(prompt_tokens: int, completion_tokens: int) -> float:
+GEMINI_PRICE_PROMPT = 0.10 / 1_000_000
+GEMINI_PRICE_COMPLETION = 0.40 / 1_000_000
+
+
+def estimate_cost_usd(
+	provider: str,
+	prompt_tokens: int,
+	completion_tokens: int,
+) -> float:
+	if provider == 'gemini':
+		return (
+			prompt_tokens * GEMINI_PRICE_PROMPT
+			+ completion_tokens * GEMINI_PRICE_COMPLETION
+		)
 	return (
 		prompt_tokens * PRICE_PROMPT_PER_TOKEN
 		+ completion_tokens * PRICE_COMPLETION_PER_TOKEN
@@ -135,26 +149,30 @@ def run() -> None:
 		expected = caso['categoria_esperada']
 
 		t0 = time.perf_counter()
-		response = triage.call_triage(system_prompt, texto)
-		latency_s = time.perf_counter() - t0
-
-		usage = response.usage
-		prompt_tokens = usage.prompt_tokens if usage else 0
-		completion_tokens = usage.completion_tokens if usage else 0
-		total_tokens = (
-			usage.total_tokens
-			if usage and usage.total_tokens is not None
-			else prompt_tokens + completion_tokens
-		)
-		model = getattr(response, 'model', None) or 'gpt-4o-mini'
-
 		try:
-			triage_result = triage.parse_tool_response(response)
+			triage_result, response, attempts = triage.run_triage_with_retries(
+				system_prompt,
+				texto,
+			)
 			predicted = triage_result.category
 		except SystemExit as err:
-			print(f'[ERROR] {eval_id} fallo al parsear/validar: {err}')
+			print(f'[ERROR] {eval_id} fallo tras reintentos: {err}')
 			predicted = '__error__'
 			triage_result = None
+			response = None
+			attempts = 0
+		latency_s = time.perf_counter() - t0
+
+		if response is None:
+			prompt_tokens = completion_tokens = total_tokens = 0
+			provider = 'unknown'
+			model = 'unknown'
+		else:
+			prompt_tokens = response.prompt_tokens
+			completion_tokens = response.completion_tokens
+			total_tokens = response.total_tokens
+			provider = response.provider
+			model = response.model
 
 		is_correct = predicted == expected and triage_result is not None
 
@@ -165,12 +183,12 @@ def run() -> None:
 		if is_correct:
 			by_cat[expected]['ok'] += 1
 
-		cost_usd = estimate_cost_usd(prompt_tokens, completion_tokens)
+		cost_usd = estimate_cost_usd(provider, prompt_tokens, completion_tokens)
 		ts = datetime.now(timezone.utc).isoformat()
 
 		metric = {
 			'timestamp': ts,
-			'provider': PROVIDER,
+			'provider': provider,
 			'model': model,
 			'prompt_tokens': prompt_tokens,
 			'completion_tokens': completion_tokens,
@@ -182,6 +200,7 @@ def run() -> None:
 			'category_expected': expected,
 			'category_predicted': predicted,
 			'category_correct': is_correct,
+			'attempts': attempts,
 		}
 		append_metric(metric)
 		status = 'OK' if is_correct else 'FAIL'
@@ -195,8 +214,10 @@ def run() -> None:
 			getattr(triage, 'PROMPT_PATH', ROOT / 'prompts' / 'fewShot.yaml')
 			.relative_to(ROOT),
 		),
-		'provider': PROVIDER,
-		'model': 'gpt-4o-mini',
+		'llm_primary': os.getenv('LLM_PRIMARY', 'openai'),
+		'llm_fallback': os.getenv('LLM_FALLBACK', 'gemini'),
+		'model_openai': getattr(triage, 'OPENAI_MODEL', 'gpt-4o-mini'),
+		'model_gemini': getattr(triage, 'GEMINI_MODEL', 'gemini-2.0-flash'),
 		**accuracy,
 	}
 	save_report(summary)

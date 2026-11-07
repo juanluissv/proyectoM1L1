@@ -1,36 +1,36 @@
 import argparse
 import json
-from pathlib import Path
-from typing import Literal
 import os
+import sys
+from pathlib import Path
+
+_SRC = Path(__file__).resolve().parent
+if str(_SRC) not in sys.path:
+	sys.path.insert(0, str(_SRC))
+
 import yaml
 from dotenv import load_dotenv
-from openai import OpenAI
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
+
+from contracts import TriageContrato
+from llm_provider import (
+	GEMINI_MODEL,
+	OPENAI_MODEL,
+	TriageLLMResponse,
+	call_triage,
+)
 
 load_dotenv()
-
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 ROOT = Path(__file__).resolve().parent.parent
 PROMPT_PATH = ROOT / 'prompts' / 'fewShot.yaml'
 ANSWERS_PATH = ROOT / 'apiAnswersRecords' / 'answers.jsonl'
 
+LLM_MAX_RETRIES = int(os.getenv('LLM_MAX_RETRIES', '3'))
 
-TOOL_NAME = 'clasificar_consulta'
-TOOL_DESCRIPTION = (
-	'Clasifica el ticket de soporte y devuelve respuesta, confianza, '
-	'categoría y acciones sugeridas para el agente humano.'
-)
-CategoriaValida = Literal['billing', 'technical', 'account', 'other']
 
-class TriageContrato(BaseModel):
-	answer: str = Field(min_length=1)
-	confidence: float = Field(ge=0.0, le=1.0)
-	category: CategoriaValida
-	actions: list[str] = Field(min_length=1)
-
-TOOL_SCHEMA = TriageContrato.model_json_schema()
+class TriageParseError(Exception):
+	"""JSON o contrato Pydantic inválido en la respuesta del modelo."""
 
 
 def parse_args():
@@ -51,46 +51,75 @@ def load_system_prompt():
 	return prompt_data['system_prompt'].strip()
 
 
-def call_triage(system_prompt: str, ticket: str):
-	return client.chat.completions.create(
-		model='gpt-4o-mini',
-		messages=[
-			{'role': 'system', 'content': system_prompt},
-			{'role': 'user', 'content': f'Ticket: {ticket}'},
-		],
-		tools=[{
-			'type': 'function',
-			'function': {
-				'name': TOOL_NAME,
-				'description': TOOL_DESCRIPTION,
-				'parameters': TOOL_SCHEMA,
-			},
-		}],
-		tool_choice={
-			'type': 'function',
-			'function': {'name': TOOL_NAME},
-		},
-	)
-
-
-def parse_tool_response(response) -> TriageContrato:
-	message = response.choices[0].message
-	if not message.tool_calls:
-		raise SystemExit(
-			'Error: el modelo no devolvió tool_calls. '
-			f'Contenido: {message.content!r}',
-		)
-
-	raw_args = message.tool_calls[0].function.arguments
+def parse_tool_response(response: TriageLLMResponse) -> TriageContrato:
 	try:
-		args_dict = json.loads(raw_args)
+		args_dict = json.loads(response.tool_arguments_json)
 	except json.JSONDecodeError as err:
-		raise SystemExit(f'Error: JSON inválido en tool arguments: {err}') from err
-
+		raise TriageParseError(
+			f'JSON inválido en tool arguments: {err}',
+		) from err
 	try:
 		return TriageContrato.model_validate(args_dict)
 	except ValidationError as err:
-		raise SystemExit(f'Error: no cumple el contrato Pydantic:\n{err}') from err
+		raise TriageParseError(
+			f'No cumple el contrato Pydantic:\n{err}',
+		) from err
+
+
+def run_triage_with_retries(
+	system_prompt: str,
+	ticket: str,
+	max_retries: int | None = None,
+) -> tuple[TriageContrato, TriageLLMResponse, int]:
+	"""
+	Llama al LLM y valida la salida; reintenta hasta max_retries ante parse/Pydantic.
+	"""
+	limit = max_retries if max_retries is not None else LLM_MAX_RETRIES
+	last_error: TriageParseError | None = None
+	last_response: TriageLLMResponse | None = None
+	prompt_sum = 0
+	completion_sum = 0
+	total_sum = 0
+
+	for attempt in range(1, limit + 1):
+		response = call_triage(system_prompt, ticket)
+		last_response = response
+		prompt_sum += response.prompt_tokens
+		completion_sum += response.completion_tokens
+		total_sum += response.total_tokens
+		try:
+			triage = parse_tool_response(response)
+			aggregated = TriageLLMResponse(
+				provider=response.provider,
+				model=response.model,
+				tool_arguments_json=response.tool_arguments_json,
+				prompt_tokens=prompt_sum,
+				completion_tokens=completion_sum,
+				total_tokens=total_sum,
+			)
+			if attempt > 1:
+				print(
+					f'Validación OK en intento {attempt}/{limit}',
+					file=sys.stderr,
+				)
+			return triage, aggregated, attempt
+		except TriageParseError as err:
+			last_error = err
+			print(
+				f'Intento {attempt}/{limit} falló validación: {err}',
+				file=sys.stderr,
+			)
+
+	msg = last_error or 'Error desconocido de validación'
+	detail = ''
+	if last_response is not None:
+		detail = (
+			f'\nÚltimo proveedor: {last_response.provider}, '
+			f'args: {last_response.tool_arguments_json[:200]}...'
+		)
+	raise SystemExit(
+		f'Error: agotados {limit} reintentos. {msg}{detail}',
+	) from last_error
 
 
 def main():
@@ -100,13 +129,21 @@ def main():
 		raise SystemExit('Error: --query no puede estar vacío.')
 
 	system_prompt = load_system_prompt()
-	response = call_triage(system_prompt, ticket)
-	triage = parse_tool_response(response)
+	triage, response, attempts = run_triage_with_retries(system_prompt, ticket)
 
-	record = {'ticket': ticket, 'answer': triage.model_dump()}
+	record = {
+		'ticket': ticket,
+		'answer': triage.model_dump(),
+		'provider': response.provider,
+		'model': response.model,
+		'attempts': attempts,
+	}
 	output_json = json.dumps(triage.model_dump(), ensure_ascii=False)
 
 	print('ticket:', ticket)
+	print('proveedor:', response.provider, '| modelo:', response.model)
+	if attempts > 1:
+		print('intentos:', attempts)
 	print('respuesta:', output_json)
 
 	ANSWERS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -114,6 +151,19 @@ def main():
 		answers_file.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 	print(f'Respuesta guardada en {ANSWERS_PATH}')
+
+
+__all__ = [
+	'OPENAI_MODEL',
+	'GEMINI_MODEL',
+	'PROMPT_PATH',
+	'LLM_MAX_RETRIES',
+	'TriageParseError',
+	'call_triage',
+	'load_system_prompt',
+	'parse_tool_response',
+	'run_triage_with_retries',
+]
 
 
 if __name__ == '__main__':

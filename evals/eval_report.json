@@ -1,13 +1,15 @@
 {
-  "timestamp": "2026-11-07T17:54:13.512851+00:00",
+  "timestamp": "2026-11-07T18:52:25.406678+00:00",
   "dataset_path": "evals/dataset.jsonl",
   "prompt_path": "prompts/fewShot.yaml",
-  "provider": "openai",
-  "model": "gpt-4o-mini",
+  "llm_primary": "openai",
+  "llm_fallback": "gemini",
+  "model_openai": "gpt-4o-mini",
+  "model_gemini": "gemini-2.0-flash",
   "accuracy_global": {
-    "correct": 27,
+    "correct": 26,
     "total": 30,
-    "accuracy": 0.9
+    "accuracy": 0.8667
   },
   "by_category": {
     "account": {
@@ -21,9 +23,9 @@
       "accuracy": 0.875
     },
     "other": {
-      "correct": 5,
+      "correct": 4,
       "total": 7,
-      "accuracy": 0.7143
+      "accuracy": 0.5714
     },
     "technical": {
       "correct": 8,
