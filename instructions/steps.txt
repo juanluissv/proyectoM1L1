@@ -12,16 +12,19 @@ development steps:
 - call  openai api with one ticket                                                          +
 - test with one simple prompt with one simple ticket                                        +
 - create different versions of prompts (zero-shot, few-shot, chain-of-thought, etc.)        +
-- create JSON Schema / Pydantic contract for the output 
-    {answer, confidence, category, actions} 
-    category ∈ {billing, technical, account, other}
-- Configurá los parámetros de la llamada (modelo, temperature, límites de tokens)
-- add Gemini API 
+- create JSON Schema / Pydantic contract for the output                                     +
+    {answer, confidence, category, actions}                                                 +
+    category ∈ {billing, technical, account, other}                                         +
 - create tickets dataset
 - create suite de evals 
 - register metrics in data/metrics.jsonl
 - Registro persistente estructurado en JSONL por petición: timestamp, texto, categoría, 
   tokens in/out, latencia (s) y costo estimado (USD).
+- Configurá los parámetros de la llamada (modelo, temperature, límites de tokens)
+- add Gemini API
+- want retries when validation fails in main
+- make a report with global metrics and category metrics
+
 
 
 -FILES:

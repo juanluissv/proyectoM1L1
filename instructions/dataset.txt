@@ -1,0 +1,41 @@
+
++DATASET 
+Un dataset de evaluación no es lo mismo que un puñado de casos para probar que el código no explota. 
+La diferencia central es que cada caso necesita una referencia: el resultado correcto, 
+decidido por un humano, contra el cual se compara la salida del modelo. Sin una referencia,
+ no hay nada que evaluar — solo hay respuestas, y "esta respuesta suena bien"
+  es exactamente el criterio informal que hoy estás dejando atrás.
+
+  # Un caso de eval mínimo para el triage :
+# input + referencia + metadata de por qué ese caso está ahí
+{
+    "id": "EVAL-014",
+    "texto": "no me llegaron las millas del vuelo de la semana pasada",
+    "categoria_esperada": "otros",
+    "dificultad": "ambiguo",
+    "nota": "sin 'otros' explícito, el modelo suele inventar 'cuenta' o 'millas'"
+}
+
+Curar un buen dataset de evaluación implica cuatro decisiones deliberadas, no una lista de consultas juntada al pasar:
+
+1 Cobertura de casos difíciles, no solo fáciles. Un dataset lleno de consultas obvias —que cualquier versión
+ de prompt clasifica bien— no distingue entre una versión buena y una mediocre: todas van a sacar un puntaje 
+ alto y parecido. La señal útil está concentrada en los casos ambiguos, 
+ Un dataset de eval bien curado suele tener una proporción deliberada de casos difíciles más alta que
+  la que vas a ver en producción — justamente para forzar que las diferencias entre versiones se noten.
+
+2 Tamaño suficiente para que un número no sea ruido. Con 3 o 4 casos, que uno cambie de categoría entre 
+corridas puede ser azar del muestreo del modelo, no una mejora real. Con 30 o 50 casos, un cambio de 5 
+puntos porcentuales en accuracy empieza a significar algo. No hace falta un dataset gigante — 
+hace falta uno lo bastante grande para que el número no dependa de un solo caso puntual.  
+
+3 Referencia decidida antes de correr el modelo, no después. Si la referencia se ajusta mirando 
+lo que respondió el modelo ("bueno, en realidad esta consulta también podría ser cambios"), 
+dejó de ser una referencia independiente — es la misma trampa que elegir la hipótesis después de ver los datos.
+ La categoría esperada de cada caso se fija primero, y se documenta el porqué 
+ (como en el campo nota del ejemplo de arriba), antes de que nadie mire qué contestó ningún prompt.
+
+4 Categorías representadas de forma pareja. Si el dataset tiene 40 casos de equipaje y 2 de reembolsos, 
+el accuracy global va a estar dominado casi enteramente por qué tan bien clasifica equipaje — 
+un score por categoría (que vas a necesitar en el hands-on de hoy) se vuelve poco confiable
+si alguna categoría casi no tiene casos para medir. 

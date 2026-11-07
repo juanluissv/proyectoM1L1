@@ -1,0 +1,21 @@
+-Aplicar y justificar una técnica de context engineering, 
+con prompts versionados en archivos YAML fuera del código. 
+La versión elegida se respalda con datos de evals,
+
+-Construir un dataset de evaluación y una suite de evals ejecutable,
+ con métricas globales y por categoría 
+
+- Cada ejecución registra tokens consumidos, latencia y costo
+
+-El proyecto incluye un dataset de evaluación etiquetado y una suite de evals que corre por comando
+ y reporta score global y por categoría.
+
++ Dataset y suite de evals
+- evals/dataset.jsonl : Dataset de ≥30 casos etiquetados; 
+- evals/runner.py     : runner ejecutable por comando con score global y por categoría.
+
++ Registro de métricas
+- data/metrics.jsonl
+- Log estructurado append-only por request: 
+timestamp, tokens (prompt/completion/total), latencia (s) y costo estimado (USD).
+
