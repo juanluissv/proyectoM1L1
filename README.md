@@ -1,187 +1,235 @@
 # Servicio de triage de soporte (Nivel 1)
 
-Automatización del primer nivel de soporte: el servicio recibe consultas en texto libre, las clasifica, propone una respuesta y sugiere acciones para un agente humano, con calidad medible, costos controlados y mitigación de usos maliciosos.
+CLI que recibe consultas en texto libre, las clasifica en categorías de soporte, propone una respuesta al cliente y sugiere acciones para un agente humano. La salida cumple un contrato JSON validado con Pydantic; las llamadas al modelo pasan por una capa multi-proveedor (OpenAI principal, Gemini como respaldo) y las evaluaciones miden la calidad de la clasificación sobre un dataset etiquetado.
 
-## Objetivo
+---
 
-Construir un servicio (CLI) que recibe la consulta de un usuario y devuelve una respuesta **estructurada, segura y medida**, validada contra un contrato fijo.
+## 1. Requisitos e instalación
 
-### Contrato de salida (JSON / Pydantic)
+### Requisitos
 
-| Campo        | Descripción |
-|-------------|-------------|
-| `answer`    | Respuesta propuesta al usuario |
-| `confidence`| Confianza del modelo en la clasificación/respuesta |
-| `category`  | Una de: `billing`, `technical`, `account`, `other` |
-| `actions`   | Lista de acciones sugeridas para el agente humano |
+| Requisito | Detalle |
+|-----------|---------|
+| Python | 3.10 o superior (recomendado 3.11+) |
+| Cuentas API | Claves de **OpenAI** y, opcionalmente, **Google Gemini** (fallback) |
+| Sistema | macOS, Linux o Windows con `python3` en PATH |
 
-Cada ejecución registra **tokens** (entrada/salida), **latencia** y **costo estimado (USD)**. El repositorio incluye un **dataset de evaluación etiquetado** y una **suite de evals** ejecutable por comando, con score global y por categoría.
-
-## Requisitos del proyecto
-
-- Al menos **dos proveedores LLM** configurables (p. ej. OpenAI y Gemini/Anthropic).
-- **Context engineering** con prompts versionados en YAML; técnica elegida documentada y **justificada con resultados de evals**, no solo opinión.
-- Salidas **estructuradas y validadas** (JSON Schema / Pydantic), con **reintentos automáticos** ante parsing inválido.
-- **Guardrails**: moderación / detección de prompt injection en entrada y validación de contenido en salida.
-- Abstracción **`LLMProvider`** para cambiar de proveedor sin tocar la lógica de negocio.
-- Parámetros de llamada (modelo, `temperature`, límites de tokens) configurados de forma deliberada y documentados.
-
-## Estructura del repositorio
-
-```
-.
-├── README.md
-├── .env.example          # Variables documentadas (sin credenciales reales)
-├── .env                  # Local, no commitear
-├── .gitignore
-├── requirements.txt
-├── src/
-│   ├── main.py           # CLI de triage
-│   └── llm_provider.py   # Abstracción multi-proveedor
-├── prompts/
-│   └── *.yaml            # Prompts versionados (zero-shot, few-shot, CoT, etc.)
-├── evals/
-│   ├── dataset.jsonl     # ≥30 casos etiquetados
-│   └── runner.py         # Suite de evals (script, no framework de tests)
-└── data/
-    └── metrics.jsonl     # Log append-only por request
-```
-
-## Setup
-
-### 1. Clonar el repositorio
+### Pasos para instalar y correr
 
 ```bash
-git clone <url-del-repo>
+# Clonar (o descomprimir) el proyecto
 cd proyectoM1L1
-```
 
-### 2. Entorno virtual
-
-```bash
+# Entorno virtual
 python3 -m venv .venv
-source .venv/bin/activate   # macOS / Linux
-```
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
-### 3. Dependencias
-
-```bash
+# Dependencias
 pip install -r requirements.txt
-```
 
-### 4. Variables de entorno
-
-Copiá `.env.example` a `.env` y completá las claves (nunca subas `.env` al repositorio):
-
-```bash
+# Variables de entorno (nunca commitear .env)
 cp .env.example .env
+# Editar .env y completar OPENAI_API_KEY y, si usas fallback, GEMINI_API_KEY
 ```
 
-Documentá en `.env.example` al menos: proveedor por defecto, API keys, modelo, `temperature` y límites de tokens.
+Variables relevantes (ver `.env.example`):
 
-## Uso
+- `OPENAI_API_KEY` — obligatoria para el proveedor principal.
+- `GEMINI_API_KEY` — para fallback si OpenAI falla (rate limit, timeout, etc.).
+- `LLM_PRIMARY` / `LLM_FALLBACK` — por defecto `openai` / `gemini`.
+- `OPENAI_MODEL`, `GEMINI_MODEL`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`, `LLM_MAX_RETRIES` — opcionales.
 
-### CLI de triage
+Con el entorno activado y las claves configuradas, ya podés ejecutar la CLI o la suite de evals (secciones siguientes).
 
-Acepta una consulta por línea de comandos, aplica guardrails, llama al LLM configurado y devuelve JSON validado.
+---
+
+## 2. Estructura del repositorio
+
+```
+proyectoM1L1/
+├── Readme.md                 # Este archivo
+├── requirements.txt          # Dependencias Python (openai, google-genai, pydantic, PyYAML, …)
+├── .env.example              # Plantilla de variables (sin secretos reales)
+├── .gitignore
+│
+├── src/
+│   ├── main.py               # CLI de triage
+│   ├── llm_provider.py       # OpenAI + Gemini, tool calling, failover
+│   └── contracts.py          # Contrato Pydantic y schema de la función LLM
+│
+├── prompts/
+│   ├── fewShot.yaml          # Prompt en producción (few-shot, con ejemplos)
+│   └── zeroShot.yaml         # Variante zero-shot para comparar
+│
+├── evals/
+│   ├── dataset.jsonl         # 30 casos etiquetados (categoria_esperada)
+│   ├── runner.py             # Suite de evaluación (accuracy global y por categoría)
+│   └── eval_report.json      # Último reporte generado por runner.py
+│
+├── data/
+│   └── metrics.jsonl         # Una línea JSON por request evaluado (append-only)
+│
+├── apiAnswersRecords/
+│   └── answers.jsonl         # Historial de ejecuciones de la CLI (ticket + respuesta)
+│
+├── instructions/             # Notas y guías del curso / desarrollo
+└── agentConversations/     # Documentación auxiliar de configuración
+```
+
+---
+
+## 3. CLI: `src/main.py`
+
+El entrypoint carga el prompt desde `prompts/fewShot.yaml` (por defecto), envía el ticket al LLM con salida estructurada (function/tool `clasificar_consulta`), valida el JSON con `TriageContrato` y reintenta hasta `LLM_MAX_RETRIES` si falla el parseo o Pydantic.
+
+### Contrato de salida
+
+| Campo | Descripción |
+|-------|-------------|
+| `answer` | Respuesta propuesta al usuario |
+| `confidence` | Confianza del modelo (0–1) |
+| `category` | `billing` \| `technical` \| `account` \| `other` |
+| `actions` | Lista de acciones sugeridas para el agente humano |
+
+### Ejemplo
 
 ```bash
-python -m src.main --query "No puedo ver mi última factura en la app"
+python src/main.py --query "No puedo ver mi última factura en la app"
 ```
 
-Ejemplo de respuesta esperada:
+Salida típica en consola: ticket, proveedor/modelo usados, JSON de respuesta y ruta del archivo de registro.
+
+Ejemplo de JSON impreso:
 
 ```json
 {
-  "answer": "Revisá la sección Facturación en Configuración; si el cargo es reciente, puede tardar 24 h en aparecer.",
-  "confidence": 0.82,
+  "answer": "Revisá la sección de facturación en Configuración o el historial de pagos; si el cargo es muy reciente, puede tardar hasta 24 horas en reflejarse.",
+  "confidence": 0.85,
   "category": "billing",
   "actions": [
-    "Verificar ID de cuenta y email de facturación",
-    "Comprobar estado del pago en el portal",
-    "Escalar a finanzas si el cargo no aparece tras 48 h"
+    "Confirmar correo y cuenta asociada a la facturación",
+    "Verificar estado del último pago en el portal",
+    "Escalar a finanzas si no aparece la factura tras 48 h"
   ]
 }
 ```
 
-Cada request válido debe generar **una línea** en `data/metrics.jsonl`, por ejemplo:
+Cada ejecución exitosa **añade una línea** a `apiAnswersRecords/answers.jsonl` (ticket, respuesta completa, proveedor, modelo e intentos).
 
-```json
-{"timestamp": "2026-10-29T20:00:00Z", "category": "billing", "tokens_prompt": 420, "tokens_completion": 95, "tokens_total": 515, "latency_s": 1.23, "cost_usd": 0.0012}
-```
+---
 
-### Suite de evaluaciones
+## 4. Ejecutar `evals/runner.py`
+
+Desde la raíz del proyecto, con el mismo `.env` y venv:
 
 ```bash
 python evals/runner.py
 ```
 
-El runner debe reportar **score global** y **por categoría** (`billing`, `technical`, `account`, `other`).
+El runner:
 
-## Context engineering
+1. Importa la lógica de `src/main.py` (mismo prompt y mismos reintentos).
+2. Lee **todos** los casos de `evals/dataset.jsonl`.
+3. Por cada caso, ejecuta el triage y compara `category` predicha con `categoria_esperada`.
+4. Imprime en consola líneas `[OK]` / `[FAIL]` por `eval_id`.
+5. Escribe artefactos en disco (ver siguiente sección).
 
-> Completá esta sección cuando elijas la versión de prompt definitiva y corras las evals.
+No requiere argumentos; usa rutas fijas relativas a la raíz del repo.
 
-| Versión (YAML) | Técnica | Notas |
-|----------------|---------|--------|
-| `prompts/zero_shot.yaml` | Zero-shot | Reglas de seguridad, formato JSON |
-| `prompts/few_shot.yaml` | Few-shot | Ejemplos por categoría |
-| `prompts/cot.yaml` | Chain-of-thought | Razonamiento antes del JSON |
+---
 
-**Técnica elegida para producción:** _[pendiente — justificar con tabla de resultados abajo]_
+## 5. Resultados que genera `evals/runner.py`
 
-**Parámetros de la llamada (y por qué):**
+| Artefacto | Ruta | Contenido |
+|-----------|------|-----------|
+| Reporte de accuracy | `evals/eval_report.json` | Resumen global, desglose por categoría, timestamp, prompt y modelos usados |
+| Métricas por request | `data/metrics.jsonl` | **Append**: una línea JSON por caso evaluado |
 
-| Parámetro | Valor | Motivo |
-|-----------|-------|--------|
-| Modelo | _[ej. gpt-4o-mini]_ | _[costo/latencia vs calidad]_ |
-| Temperature | _[ej. 0.2]_ | _[menor variabilidad en JSON estructurado]_ |
-| Max tokens | _[ej. 1024]_ | _[límite acorde al contrato]_ |
+Campos principales en cada línea de `data/metrics.jsonl`:
 
-## Resultados de evals
+- `timestamp`, `provider`, `model`
+- `prompt_tokens`, `completion_tokens`, `total_tokens`
+- `latency_s`, `cost_usd` (estimado según proveedor)
+- `eval_id`, `category_expected`, `category_predicted`, `category_correct`, `attempts`
 
-> Actualizá después de ejecutar `evals/runner.py`.
+El criterio de éxito en evals es **solo la categoría** (`category` === `categoria_esperada`), no el texto de `answer` ni `actions`.
 
-| Métrica | Global | billing | technical | account | other |
-|---------|--------|---------|-----------|---------|-------|
-| Accuracy / score | — | — | — | — | — |
-| Casos en dataset | ≥30 | — | — | — | — |
+---
 
-## Seguridad y guardrails
+## 6. Últimos resultados de evals (`eval_report.json`)
 
-- **Entrada:** moderación y/o detección de prompt injection / jailbreak antes de enviar al LLM.
-- **Salida:** validación Pydantic del contrato; rechazo o reintento si el contenido no cumple políticas.
+Ejecución reflejada en el reporte actual del repositorio (prompt `prompts/fewShot.yaml`, OpenAI `gpt-4o-mini`, fallback Gemini `gemini-2.0-flash`):
 
-## Roadmap de desarrollo
+| Ámbito | Correctos | Total | Accuracy |
+|--------|-----------|-------|----------|
+| **Global** | 26 | 30 | **86.67%** |
+| account | 7 | 7 | 100.00% |
+| billing | 7 | 8 | 87.50% |
+| technical | 8 | 8 | 100.00% |
+| other | 4 | 7 | 57.14% |
 
-1. Crear repositorio en GitHub y archivos base (`README`, `requirements.txt`, `.gitignore`, `.env.example`).
-2. Entorno virtual e instalación de dependencias.
-3. Cliente OpenAI (y luego segundo proveedor, p. ej. Gemini).
-4. Prueba con un ticket simple; dataset de tickets.
-5. Contrato Pydantic `{ answer, confidence, category, actions }`.
-6. Prompts en YAML (varias versiones: zero-shot, few-shot, CoT, reglas de seguridad).
-7. Configurar modelo, temperature y límites de tokens.
-8. Suite de evals y registro en `data/metrics.jsonl` (timestamp, texto, categoría, tokens, latencia, costo USD).
-9. Documentar técnica de context engineering y resultados en este README.
+Metadatos del reporte:
 
-## Checklist de entrega
+| Campo | Valor |
+|-------|-------|
+| `timestamp` | 2026-11-07T18:52:25.406678+00:00 |
+| `dataset_path` | evals/dataset.jsonl |
+| `prompt_path` | prompts/fewShot.yaml |
+| `llm_primary` / `llm_fallback` | openai / gemini |
 
-- [ ] Al menos una ejecución de la CLI con JSON válido y una línea en `data/metrics.jsonl`.
-- [ ] Suite de evals corrida; resultados reflejados en la tabla de este README.
-- [ ] ≥2 versiones de prompt comparadas contra el dataset.
-- [ ] ≥2 proveedores LLM configurables vía `LLMProvider`.
-- [ ] Guardrails de entrada y salida implementados.
-- [ ] `.env.example` y `requirements.txt` sin credenciales reales.
+Volvé a correr `python evals/runner.py` después de cambiar prompts o modelos; este README puede actualizarse con la nueva tabla.
 
-## Criterios de evaluación (referencia)
+---
 
-- **Funcionalidad:** multi-proveedor, esquema Pydantic, retry ante parsing, casos borde.
-- **Evals:** dataset ≥30 casos, runner automatizado, reporte claro.
-- **Prompting:** versionado, comparativa empírica, selección respaldada por datos.
-- **Seguridad:** mitigación de injection; validación de salida.
-- **Observabilidad:** JSONL con tokens, latencia y costo por request.
-- **Código y docs:** modularidad (cliente, validación, guardrails y métricas separados), README ejecutable.
+## 7. Prompts: `fewShot.yaml` vs `zeroShot.yaml`
+
+### `prompts/zeroShot.yaml` (zero-shot)
+
+- Define rol de agente de soporte de primer nivel y el **formato JSON** obligatorio.
+- Enumera reglas: categorías válidas, tipo de `confidence` y `actions`.
+- **No incluye ejemplos** resueltos; el modelo debe inferir categoría y estilo solo desde las instrucciones.
+
+### `prompts/fewShot.yaml` (few-shot)
+
+- Mismas reglas de contrato y seguridad de formato.
+- Incorpora **tres ejemplos completos** (ticket → JSON) cubriendo `billing`, `technical` y `account`.
+- Los ejemplos en el YAML duplican la estructura esperada (incluida sección `examples` para referencia).
+
+### Por qué few-shot es el mejor caso para este proyecto
+
+1. **Alineación con el dataset**: varios casos de `evals/dataset.jsonl` están inspirados o coinciden con los ejemplos few-shot (p. ej. doble cobro, error 500 en dashboard), lo que reduce errores en categorías frecuentes — coherente con **100%** en `account` y `technical` y **87.5%** en `billing` en el último reporte.
+2. **Fronteras ambiguas**: tickets entre `billing` y `account`, o consultas genéricas en `other`, se benefician de ver respuestas modelo; zero-shot tiende a dispersar etiquetas sin anclas.
+3. **Salida estructurada estable**: los ejemplos fijan longitud de `answer`, número de `actions` y uso de `confidence`, lo que ayuda al tool calling y reduce reintentos por JSON inválido.
+4. **Elección en código**: `src/main.py` apunta por defecto a `fewShot.yaml`; las evals reportan métricas con ese prompt, respaldando la decisión con datos (86.67% global) y no solo con intuición.
+
+Para comparar zero-shot en evals, cambiá temporalmente `PROMPT_PATH` en `src/main.py` a `prompts/zeroShot.yaml` y volvé a ejecutar `evals/runner.py`.
+
+### Parámetros de llamada (por defecto)
+
+| Parámetro | Valor típico | Motivo |
+|-----------|--------------|--------|
+| Modelo OpenAI | `gpt-4o-mini` | Buen equilibrio costo/latencia para clasificación |
+| Modelo Gemini | `gemini-2.0-flash` | Fallback rápido |
+| Temperature | `0.2` | Menor variabilidad en categorías y JSON |
+| Max tokens | `512` | Suficiente para respuesta + acciones |
+| Max reintentos | `3` | Recuperación ante parseo o validación fallida |
+
+---
+
+## 8. Otros archivos y carpetas
+
+| Ruta | Descripción |
+|------|-------------|
+| `src/contracts.py` | Modelo Pydantic `TriageContrato`, literal de categorías y JSON Schema expuesto al LLM como herramienta `clasificar_consulta`. |
+| `src/llm_provider.py` | Clases de proveedor, function/tool calling, orden primary→fallback y agregación de tokens. |
+| `evals/dataset.jsonl` | 30 tickets con `id`, `texto`, `categoria_esperada`, `dificultad` y notas de diseño del caso. |
+| `apiAnswers/answers.jsonl` | Registro histórico alterno o de pruebas tempranas (si existe en tu clon). |
+| `instructions/` | `steps.txt`, guías de prompts, dataset y evals del enunciado del proyecto. |
+| `instructions/readme.txt` | Puntero breve al README principal. |
+| `agentConversations/` | Conversaciones generadas con el agente de codigo (cursor/composer 2.5) como asistente de el desarrollo. |
+
+---
 
 ## Licencia
 
-_[Opcional: agregar licencia del curso o del autor]_
+MIT
